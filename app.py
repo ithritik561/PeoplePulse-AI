@@ -1,786 +1,311 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
-import os
+import ollama
 
-# --------------------------------------------------
-# OPTIONAL OLLAMA
-# --------------------------------------------------
+st.set_page_config(page_title="PeoplePulse AI", page_icon="👥", layout="wide", initial_sidebar_state="expanded")
 
-try:
-    import ollama
-except ImportError:
-    ollama = None
+st.markdown("""
+<style>
+.main{background-color:#f8fafc}
+.block-container{padding-top:1.5rem;padding-bottom:2rem}
+div[data-testid="metric-container"]{background:white;border-radius:12px;padding:15px;border:1px solid #e5e7eb;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.stButton>button{border-radius:8px;font-weight:600}
+section[data-testid="stSidebar"]{background-color:#111827}
+section[data-testid="stSidebar"] *{color:white}
+</style>
+""", unsafe_allow_html=True)
 
+data = pd.read_csv("data/employees.csv")
+model = joblib.load("models/attrition_model.pkl")
+encoders = joblib.load("models/encoders.pkl")
 
-# --------------------------------------------------
-# PAGE CONFIG
-# --------------------------------------------------
+def predict_risk(emp):
+    row = emp.drop(labels=["EmployeeID","Attrition"]).to_frame().T
+    for col, encoder in encoders.items():
+        row[col] = encoder.transform(row[col])
+    return model.predict_proba(row)[0][1]
 
-st.set_page_config(
-    page_title="PeoplePulse AI",
-    page_icon="👥",
-    layout="wide"
-)
+def risk_level(p):
+    return "🔴 High Risk" if p >= .60 else ("🟠 Medium Risk" if p >= .30 else "🟢 Low Risk")
 
+def risk_signals(emp):
+    s=[]
+    if emp["EngagementScore"] < 60: s.append("Low employee engagement")
+    if emp["JobSatisfaction"] <= 2: s.append("Low job satisfaction")
+    if emp["WorkLifeBalance"] <= 2: s.append("Poor work-life balance")
+    if emp["OverTime"] == "Yes": s.append("Frequent overtime")
+    if emp["Workload"] == "High": s.append("High workload")
+    if emp["TrainingHours"] < 15: s.append("Low recent training")
+    if emp["PromotionYears"] >= 4: s.append("Long time since promotion")
+    if emp["AbsenceDays"] >= 10: s.append("High absence days")
+    return s
 
-# --------------------------------------------------
-# LOAD DATA
-# --------------------------------------------------
-
-DATA_PATH = "data/employees.csv"
-MODEL_PATH = "models/attrition_model.pkl"
-ENCODER_PATH = "models/encoders.pkl"
-
-data = pd.read_csv(DATA_PATH)
-
-model = joblib.load(MODEL_PATH)
-encoders = joblib.load(ENCODER_PATH)
-
-
-# --------------------------------------------------
-# HELPER FUNCTIONS
-# --------------------------------------------------
-
-def encode_value(column, value):
-    encoder = encoders[column]
-
-    try:
-        return encoder.transform([value])[0]
-    except:
-        return 0
-
-
-def predict_risk(row):
-    try:
-        input_data = pd.DataFrame([{
-            "Age": row["Age"],
-            "Department": encode_value("Department", row["Department"]),
-            "JobRole": encode_value("JobRole", row["JobRole"]),
-            "YearsAtCompany": row["YearsAtCompany"],
-            "MonthlyIncome": row["MonthlyIncome"],
-            "JobSatisfaction": row["JobSatisfaction"],
-            "WorkLifeBalance": row["WorkLifeBalance"],
-            "PerformanceRating": row["PerformanceRating"],
-            "OverTime": encode_value("OverTime", row["OverTime"]),
-            "TrainingHours": row["TrainingHours"],
-            "ProjectsCount": row["ProjectsCount"],
-            "Workload": encode_value("Workload", row["Workload"]),
-            "EngagementScore": row["EngagementScore"],
-            "PromotionYears": row["PromotionYears"],
-            "AbsenceDays": row["AbsenceDays"]
-        }])
-
-        probability = model.predict_proba(input_data)[0][1]
-
-        return float(probability)
-
-    except Exception:
-        return 0.0
-
-
-def risk_level(score):
-
-    if score >= 0.70:
-        return "High"
-
-    elif score >= 0.40:
-        return "Medium"
-
-    else:
-        return "Low"
-
-
-def get_risk_signals(row):
-
-    signals = []
-
-    if row["EngagementScore"] < 50:
-        signals.append("Low employee engagement")
-
-    if row["JobSatisfaction"] <= 2:
-        signals.append("Low job satisfaction")
-
-    if row["WorkLifeBalance"] <= 2:
-        signals.append("Poor work-life balance")
-
-    if row["OverTime"] == "Yes":
-        signals.append("Frequent overtime")
-
-    if row["Workload"] == "High":
-        signals.append("High workload")
-
-    if row["AbsenceDays"] >= 8:
-        signals.append("High absence days")
-
-    if row["TrainingHours"] < 10:
-        signals.append("Low training exposure")
-
-    if row["PromotionYears"] >= 3:
-        signals.append("Long time since promotion")
-
-    if len(signals) == 0:
-        signals.append("No major risk signal detected")
-
-    return signals
-
-
-def get_action_plan(row, score):
-
-    actions = []
-
-    if row["EngagementScore"] < 50:
-        actions.append(
-            "Schedule a one-to-one discussion to understand engagement concerns."
-        )
-
-    if row["OverTime"] == "Yes":
-        actions.append(
-            "Review workload and overtime distribution."
-        )
-
-    if row["Workload"] == "High":
-        actions.append(
-            "Evaluate workload and redistribute tasks if required."
-        )
-
-    if row["TrainingHours"] < 10:
-        actions.append(
-            "Recommend targeted learning or upskilling."
-        )
-
-    if row["PromotionYears"] >= 3:
-        actions.append(
-            "Review career progression and growth opportunities."
-        )
-
-    if row["JobSatisfaction"] <= 2:
-        actions.append(
-            "Discuss job satisfaction and workplace concerns with HR."
-        )
-
-    if len(actions) == 0:
-        actions.append(
-            "Continue regular employee engagement and performance monitoring."
-        )
-
-    if score >= 0.70:
-        level = "High Risk"
-
-    elif score >= 0.40:
-        level = "Medium Risk"
-
-    else:
-        level = "Low Risk"
-
-    return level, actions
-
-
-# --------------------------------------------------
-# LOCAL AI
-# --------------------------------------------------
+def action_plan(emp):
+    a=[]
+    if emp["EngagementScore"] < 60: a.append("Conduct a one-to-one engagement discussion to understand employee concerns.")
+    if emp["Workload"] == "High": a.append("Review workload and redistribute tasks where possible.")
+    if emp["OverTime"] == "Yes": a.append("Review overtime patterns and identify workload pressure.")
+    if emp["TrainingHours"] < 15: a.append("Create a targeted learning and upskilling plan.")
+    if emp["JobSatisfaction"] <= 2: a.append("Discuss the main sources of job dissatisfaction.")
+    if emp["PromotionYears"] >= 4: a.append("Review career progression and internal mobility options.")
+    if emp["AbsenceDays"] >= 10: a.append("Review absence patterns and workplace conditions.")
+    return a
 
 def local_ai(prompt):
-
-    # Streamlit Cloud / Ollama unavailable
-    if ollama is None:
-        return None
-
     try:
-
-        response = ollama.chat(
+        # Fast local inference for hackathon demo
+        r = ollama.chat(
             model="llama3.2:3b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are PeoplePulse AI, an HR decision-support assistant. "
-                        "Provide concise, professional and ethical HR insights. "
-                        "Never recommend automatic firing or hiring. "
-                        "Final decisions must remain with human HR professionals."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
+            messages=[{"role": "user", "content": prompt}],
+            options={
+                "temperature": 0.2,
+                "num_predict": 120,
+            },
+            keep_alive="10m",
         )
+        return r["message"]["content"]
+    except Exception as e:
+        return f"Ollama Error: {e}"
 
-        return response["message"]["content"]
+def ai_prompt(emp, eid, pct, signals):
+    return f"""You are PeoplePulse AI, an HR decision-support assistant.
+Analyze this employee using ONLY these facts.
 
-    except Exception:
-        return None
+ID: {eid}
+Department: {emp['Department']}
+Role: {emp['JobRole']}
+Engagement: {emp['EngagementScore']}/100
+Job satisfaction: {emp['JobSatisfaction']}/4
+Work-life balance: {emp['WorkLifeBalance']}/4
+Performance: {emp['PerformanceRating']}
+Overtime: {emp['OverTime']}
+Training hours: {emp['TrainingHours']}
+Workload: {emp['Workload']}
+Absence days: {emp['AbsenceDays']}
+Years at company: {emp['YearsAtCompany']}
+ML attrition risk: {pct}%
+Risk signals: {", ".join(signals) if signals else "None"}
 
+Give a SHORT response (maximum 120 words):
+• Risk summary
+• 2-3 key reasons
+• 2-3 HR actions
+• One 30-day step
 
-# --------------------------------------------------
-# SIDEBAR
-# --------------------------------------------------
+Do not invent facts. Do not recommend automatic firing or rejection. HR makes the final decision."""
 
-st.sidebar.title("👥 PeoplePulse AI")
+# ---------------- SIDEBAR ----------------
+with st.sidebar:
+    st.markdown("## 🤖 PeoplePulse AI")
+    st.caption("Workforce Decision Intelligence")
+    st.divider()
+    page = st.radio("Navigate to",[
+        "🏠 Dashboard","👤 Employee Risk","🤖 AI Action Planner",
+        "✨ Generative AI","🔮 What-If Simulator","📊 Workforce Analytics"
+    ], key="main_navigation")
+    st.divider()
+    employee_id = st.selectbox("👤 Select Employee",data["EmployeeID"].tolist(),key="global_employee")
+    st.divider()
+    st.markdown("### 🎯 AI Pipeline")
+    st.write("📊 Data → 🤖 ML Prediction → 🔎 Explain → ✨ Generate → ⚡ Recommend → 👤 Human Decision")
+    st.divider()
+    st.caption("🦙 Local AI: Llama 3.2:3b")
+    st.caption("No paid API required")
+    st.caption("Final decisions remain with HR.")
 
-st.sidebar.caption(
-    "AI Workforce Early-Warning & Decision Intelligence Platform"
-)
+employee = data[data["EmployeeID"] == employee_id].iloc[0]
+prob = predict_risk(employee)
+pct = round(prob*100,1)
+level = risk_level(prob)
+signals = risk_signals(employee)
+actions = action_plan(employee)
 
-page = st.sidebar.radio(
-    "Navigation",
-    [
-        "🏠 Dashboard",
-        "🚨 Employee Risk",
-        "🤖 AI Action Planner",
-        "🧠 Generative AI",
-        "🎯 What-If Simulator",
-        "📊 Workforce Analytics"
-    ]
-)
-
-st.sidebar.divider()
-
-st.sidebar.info(
-    "AI is used for decision support. "
-    "Final workforce decisions remain with human HR professionals."
-)
-
-
-# ==================================================
-# DASHBOARD
-# ==================================================
-
+# ---------------- DASHBOARD ----------------
 if page == "🏠 Dashboard":
-
     st.title("👥 PeoplePulse AI")
-
-    st.subheader(
-        "AI Workforce Early-Warning & Decision Intelligence Platform"
-    )
-
-    st.write(
-        "Detect workforce risks, understand why they occur, "
-        "recommend actions and simulate possible interventions."
-    )
-
+    st.subheader("AI Workforce Early-Warning & Decision Intelligence Platform")
+    st.write("Detect workforce risks, understand why they are happening, generate HR recommendations, and simulate possible interventions.")
     st.divider()
-
-    # Calculate high-risk employees
-    high_risk_count = sum(
-        predict_risk(row) >= 0.60
-        for _, row in data.iterrows()
-    )
-
-    historical_attrition = sum(
-        data["Attrition"] == "Yes"
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "👥 Total Employees",
-        len(data)
-    )
-
-    c2.metric(
-        "🚨 High-Risk Employees",
-        high_risk_count
-    )
-
-    c3.metric(
-        "📉 Historical Attrition",
-        historical_attrition
-    )
-
-    c4.metric(
-        "📊 Avg Engagement",
-        round(data["EngagementScore"].mean(), 1)
-    )
-
+    c1,c2,c3,c4=st.columns(4)
+    high_risk_count = sum(predict_risk(row) >= 0.60 for _, row in data.iterrows())
+    c1.metric("👥 Total Employees", len(data))
+    c2.metric("🚨 High-Risk Employees", high_risk_count)
+    c3.metric("📊 Historical Attrition", int((data["Attrition"]=="Yes").sum()))
+    c4.metric("💡 Avg Engagement", round(data["EngagementScore"].mean(),1))
     st.divider()
-
     st.header("🎯 Selected Employee Snapshot")
+    c1,c2,c3=st.columns(3)
+    c1.metric("Employee",employee_id)
+    c2.metric("ML Attrition Risk",f"{pct}%")
+    c3.metric("Risk Level",level)
+    st.info("Use the sidebar to open each working module.")
+    st.subheader("🚨 Current Risk Signals")
+    if signals:
+        for x in signals: st.warning("⚠️ "+x)
+    else: st.success("✅ No major rule-based risk signals detected.")
 
-    selected_id = st.selectbox(
-        "Select Employee",
-        data["EmployeeID"].tolist()
-    )
-
-    employee = data[
-        data["EmployeeID"] == selected_id
-    ].iloc[0]
-
-    score = predict_risk(employee)
-
-    level = risk_level(score)
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "Employee ID",
-        employee["EmployeeID"]
-    )
-
-    c2.metric(
-        "Risk Score",
-        f"{score:.0%}"
-    )
-
-    c3.metric(
-        "Risk Level",
-        level
-    )
-
+# ---------------- EMPLOYEE RISK ----------------
+elif page == "👤 Employee Risk":
+    st.title("👤 Employee Risk Analysis")
+    st.write("ML-based attrition risk with explainable workforce signals.")
+    st.subheader(f"Employee Profile — {employee_id}")
+    c1,c2,c3=st.columns(3)
+    with c1:
+        st.write("**Department:**",employee["Department"])
+        st.write("**Job Role:**",employee["JobRole"])
+        st.write("**Years at Company:**",employee["YearsAtCompany"])
+    with c2:
+        st.write("**Monthly Income:** ₹",employee["MonthlyIncome"])
+        st.write("**Job Satisfaction:**",employee["JobSatisfaction"],"/ 4")
+        st.write("**Work-Life Balance:**",employee["WorkLifeBalance"],"/ 4")
+    with c3:
+        st.write("**Performance Rating:**",employee["PerformanceRating"])
+        st.write("**Engagement Score:**",employee["EngagementScore"],"/ 100")
+        st.write("**Workload:**",employee["Workload"])
     st.divider()
-
-    st.subheader("🔍 Risk Signals")
-
-    signals = get_risk_signals(employee)
-
-    for signal in signals:
-        st.write("•", signal)
-
-
-# ==================================================
-# EMPLOYEE RISK
-# ==================================================
-
-elif page == "🚨 Employee Risk":
-
-    st.title("🚨 Workforce Risk Radar")
-
-    st.write(
-        "Use the ML model to identify employees who may require "
-        "additional HR attention."
-    )
-
-    selected_id = st.selectbox(
-        "Select Employee",
-        data["EmployeeID"].tolist(),
-        key="risk_employee"
-    )
-
-    employee = data[
-        data["EmployeeID"] == selected_id
-    ].iloc[0]
-
-    score = predict_risk(employee)
-
-    level = risk_level(score)
-
+    st.subheader("🚨 Risk Signals")
+    if signals:
+        for x in signals: st.warning("⚠️ "+x)
+    else: st.success("✅ No major workforce risk signals detected.")
     st.divider()
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "Employee",
-        employee["EmployeeID"]
-    )
-
-    c2.metric(
-        "Attrition Risk",
-        f"{score:.1%}"
-    )
-
-    c3.metric(
-        "Risk Level",
-        level
-    )
-
+    st.subheader("🤖 AI Attrition Risk Prediction")
+    if prob>=.60: st.error(f"🔴 High Attrition Risk — Model Probability: {pct}%")
+    elif prob>=.30: st.warning(f"🟠 Medium Attrition Risk — Model Probability: {pct}%")
+    else: st.success(f"🟢 Low Attrition Risk — Model Probability: {pct}%")
+    st.progress(min(max(prob,0),1))
     st.divider()
+    st.subheader("📋 Employee Data")
+    st.dataframe(employee.to_frame().T,use_container_width=True)
 
-    st.subheader("🔎 Why is this employee at risk?")
-
-    signals = get_risk_signals(employee)
-
-    for signal in signals:
-        st.warning(signal)
-
-    st.divider()
-
-    st.subheader("👤 Employee Information")
-
-    info1, info2, info3, info4 = st.columns(4)
-
-    info1.metric(
-        "Department",
-        employee["Department"]
-    )
-
-    info2.metric(
-        "Job Role",
-        employee["JobRole"]
-    )
-
-    info3.metric(
-        "Engagement",
-        employee["EngagementScore"]
-    )
-
-    info4.metric(
-        "Performance",
-        employee["PerformanceRating"]
-    )
-
-    st.subheader("📋 Employee Record")
-
-    st.dataframe(
-        pd.DataFrame([employee]),
-        use_container_width=True
-    )
-
-
-# ==================================================
-# AI ACTION PLANNER
-# ==================================================
-
+# ---------------- ACTION PLANNER ----------------
 elif page == "🤖 AI Action Planner":
-
     st.title("🤖 AI Action Planner")
-
-    st.write(
-        "Convert workforce risk signals into practical HR actions."
-    )
-
-    selected_id = st.selectbox(
-        "Select Employee",
-        data["EmployeeID"].tolist(),
-        key="planner_employee"
-    )
-
-    employee = data[
-        data["EmployeeID"] == selected_id
-    ].iloc[0]
-
-    score = predict_risk(employee)
-
-    level, actions = get_action_plan(
-        employee,
-        score
-    )
-
+    st.write("Convert detected workforce risks into a structured HR action plan.")
+    c1,c2,c3=st.columns(3)
+    c1.metric("Employee",employee_id)
+    c2.metric("ML Risk",f"{pct}%")
+    c3.metric("Risk Level",level)
     st.divider()
-
-    c1, c2 = st.columns(2)
-
-    c1.metric(
-        "Risk Score",
-        f"{score:.1%}"
-    )
-
-    c2.metric(
-        "Risk Category",
-        level
-    )
-
+    st.subheader("🧠 Why is this employee at risk?")
+    if signals:
+        for x in signals: st.warning("⚠️ "+x)
+    else: st.success("No major risk drivers detected.")
+    st.subheader("⚡ Recommended Actions")
+    if actions:
+        for i,x in enumerate(actions,1): st.info(f"**Action {i}:** {x}")
+    else: st.success("No immediate intervention required.")
+    st.subheader("📅 30-Day Intervention Plan")
+    a,b,c=st.columns(3)
+    with a:
+        st.markdown("### Week 1")
+        st.write("🔹 HR / Manager check-in")
+        st.write("🔹 Understand employee concerns")
+        st.write("🔹 Review workload")
+    with b:
+        st.markdown("### Week 2–3")
+        st.write("🔹 Apply selected intervention")
+        st.write("🔹 Provide training/support")
+        st.write("🔹 Monitor engagement")
+    with c:
+        st.markdown("### Week 4")
+        st.write("🔹 Reassess employee risk")
+        st.write("🔹 Compare new scenario")
+        st.write("🔹 HR review")
     st.divider()
-
-    st.subheader("🔍 Why?")
-
-    signals = get_risk_signals(employee)
-
-    for signal in signals:
-        st.write("•", signal)
-
-    st.divider()
-
-    st.subheader("💡 Recommended Actions")
-
-    for i, action in enumerate(actions, 1):
-        st.write(
-            f"**{i}.** {action}"
-        )
-
-    st.divider()
-
-    st.subheader("📅 Suggested 30-Day Plan")
-
-    st.write("**Week 1:** Understand employee concerns")
-
-    st.write("**Week 2:** Apply workload or learning intervention")
-
-    st.write("**Week 3:** Review engagement and performance")
-
-    st.write("**Week 4:** Evaluate intervention impact")
-
-    st.divider()
-
     st.subheader("👤 Human-in-the-Loop")
+    decision=st.selectbox("HR Review Status",["Select status","Needs HR Review","Under Manager Review","Intervention Planned","Continue Monitoring"],key="planner_hr_status")
+    if decision!="Select status": st.success(f"✅ HR Status: {decision}")
+    st.caption("PeoplePulse AI provides decision support. Final workforce decisions remain with human HR professionals.")
 
-    st.info(
-        "PeoplePulse AI does not automatically fire, hire or penalize employees. "
-        "HR professionals review the evidence and make the final decision."
-    )
+# ---------------- GENERATIVE AI ----------------
+elif page == "✨ Generative AI":
+    st.title("✨ Generative AI HR Insight")
+    st.write("Generate a natural-language HR analysis using your local Llama model.")
+    c1,c2,c3=st.columns(3)
+    c1.metric("Employee",employee_id)
+    c2.metric("ML Risk",f"{pct}%")
+    c3.metric("Risk Level",level)
+    st.info("🦙 Llama 3.2:3b is running locally through Ollama. Fast demo mode: concise responses.")
+    if signals:
+        st.subheader("🔎 Input Risk Signals")
+        for x in signals: st.warning("⚠️ "+x)
+    if st.button("✨ Generate AI HR Insight",type="primary",key="generate_ai_insight"):
+        with st.spinner("🦙 Generating a concise AI insight..."):
+            result=local_ai(ai_prompt(employee,employee_id,pct,signals))
+        st.markdown("### 🧠 AI-Generated HR Analysis")
+        st.markdown(result)
+    st.caption("AI-generated decision support. Final workforce decisions remain with human HR professionals.")
 
-    st.checkbox(
-        "HR review completed",
-        key="hr_review"
-    )
-
-
-# ==================================================
-# GENERATIVE AI
-# ==================================================
-
-elif page == "🧠 Generative AI":
-
-    st.title("🧠 Generative AI HR Assistant")
-
-    st.write(
-        "Ask questions about workforce risk, employee engagement, "
-        "HR actions and workforce insights."
-    )
-
+# ---------------- WHAT-IF ----------------
+elif page == "🔮 What-If Simulator":
+    st.title("🔮 What-If Workforce Simulator")
+    st.write("Change workforce conditions and run the same ML model again to compare predicted risk.")
+    st.info("💡 Try changing engagement, training hours or workload.")
+    c1,c2,c3=st.columns(3)
+    with c1:
+        eng=st.slider("Engagement Score",0,100,int(employee["EngagementScore"]),key="sim_engagement")
+    with c2:
+        training=st.slider("Training Hours",0,60,int(employee["TrainingHours"]),key="sim_training")
+    with c3:
+        opts=["Low","Medium","High"]
+        workload=st.selectbox("Workload",opts,index=opts.index(employee["Workload"]),key="sim_workload")
+    sim=employee.copy()
+    sim["EngagementScore"]=eng
+    sim["TrainingHours"]=training
+    sim["Workload"]=workload
+    sim_prob=predict_risk(sim)
+    sim_pct=round(sim_prob*100,1)
     st.divider()
-
-    # Check Ollama availability
-    if ollama is None:
-
-        st.info(
-            "💡 Generative AI is available when PeoplePulse AI "
-            "is running locally with Ollama."
-        )
-
-        st.write(
-            "The deployed Streamlit Cloud version provides the "
-            "ML-based workforce analytics and decision-support features."
-        )
-
+    st.subheader("📊 Current vs What-If Scenario")
+    c1,c2,c3=st.columns(3)
+    c1.metric("Current ML Risk",f"{pct}%")
+    c2.metric("Simulated ML Risk",f"{sim_pct}%",delta=f"{sim_pct-pct:.1f}%")
+    diff=round(sim_pct-pct,1)
+    with c3:
+        if diff<0: st.success(f"📉 Risk Reduced by {abs(diff)}%")
+        elif diff>0: st.error(f"📈 Risk Increased by {diff}%")
+        else: st.info("➡️ Risk Unchanged")
+    st.subheader("🧠 Scenario Details")
+    c1,c2,c3=st.columns(3)
+    c1.write(f"**Engagement:** {employee['EngagementScore']} → {eng}")
+    c2.write(f"**Training Hours:** {employee['TrainingHours']} → {training}")
+    c3.write(f"**Workload:** {employee['Workload']} → {workload}")
+    st.subheader("💡 AI Interpretation")
+    if sim_pct<pct:
+        st.success("The simulated intervention reduced the model's predicted attrition risk. HR can review this scenario before considering an actual intervention.")
+    elif sim_pct>pct:
+        st.warning("The simulated scenario increased the model's predicted attrition risk. HR can explore alternative interventions.")
     else:
+        st.info("The simulated changes did not change the model's predicted attrition risk.")
+    st.caption("Simulation is a model scenario, not a guarantee of a real-world outcome.")
 
-        prompt = st.text_area(
-            "Ask PeoplePulse AI",
-            placeholder=(
-                "Example: Why is employee E1024 at high risk "
-                "and what actions can HR consider?"
-            ),
-            height=150
-        )
-
-        if st.button("✨ Generate AI Analysis"):
-
-            if prompt.strip() == "":
-                st.warning(
-                    "Please enter a question."
-                )
-
-            else:
-
-                with st.spinner(
-                    "PeoplePulse AI is analysing..."
-                ):
-
-                    answer = local_ai(prompt)
-
-                if answer:
-
-                    st.subheader(
-                        "🤖 AI Analysis"
-                    )
-
-                    st.write(answer)
-
-                else:
-
-                    st.warning(
-                        "Local AI is currently unavailable. "
-                        "Please make sure Ollama is running."
-                    )
-
-    st.divider()
-
-    st.caption(
-        "AI-generated decision support. Final workforce decisions "
-        "remain with human HR professionals."
-    )
-
-
-# ==================================================
-# WHAT-IF SIMULATOR
-# ==================================================
-
-elif page == "🎯 What-If Simulator":
-
-    st.title("🎯 What-If Workforce Simulator")
-
-    st.write(
-        "Change employee factors and observe how the ML risk prediction changes."
-    )
-
-    selected_id = st.selectbox(
-        "Select Employee",
-        data["EmployeeID"].tolist(),
-        key="simulation_employee"
-    )
-
-    employee = data[
-        data["EmployeeID"] == selected_id
-    ].iloc[0].copy()
-
-    original_score = predict_risk(employee)
-
-    st.divider()
-
-    st.subheader("🎛️ Adjust Employee Factors")
-
-    engagement = st.slider(
-        "Engagement Score",
-        min_value=0,
-        max_value=100,
-        value=int(employee["EngagementScore"])
-    )
-
-    training = st.slider(
-        "Training Hours",
-        min_value=0,
-        max_value=50,
-        value=int(employee["TrainingHours"])
-    )
-
-    workload = st.selectbox(
-        "Workload",
-        ["Low", "Medium", "High"],
-        index=["Low", "Medium", "High"].index(
-            employee["Workload"]
-        )
-    )
-
-    simulated_employee = employee.copy()
-
-    simulated_employee["EngagementScore"] = engagement
-    simulated_employee["TrainingHours"] = training
-    simulated_employee["Workload"] = workload
-
-    simulated_score = predict_risk(
-        simulated_employee
-    )
-
-    st.divider()
-
-    c1, c2 = st.columns(2)
-
-    c1.metric(
-        "Original Risk",
-        f"{original_score:.1%}"
-    )
-
-    c2.metric(
-        "Simulated Risk",
-        f"{simulated_score:.1%}"
-    )
-
-    st.divider()
-
-    difference = simulated_score - original_score
-
-    if difference < 0:
-
-        st.success(
-            f"Risk decreased by {abs(difference):.1%}"
-        )
-
-    elif difference > 0:
-
-        st.error(
-            f"Risk increased by {difference:.1%}"
-        )
-
-    else:
-
-        st.info(
-            "No significant change in predicted risk."
-        )
-
-    st.divider()
-
-    st.subheader("🧑‍💼 Human Decision")
-
-    st.info(
-        "The simulator helps HR explore possible scenarios. "
-        "It does not make the final workforce decision."
-    )
-
-
-# ==================================================
-# WORKFORCE ANALYTICS
-# ==================================================
-
+# ---------------- ANALYTICS ----------------
 elif page == "📊 Workforce Analytics":
-
     st.title("📊 Workforce Analytics Dashboard")
-
-    st.write(
-        "Explore workforce patterns across departments, "
-        "engagement, performance and attrition."
-    )
-
-    st.divider()
-
-    # Department distribution
+    st.write("Explore workforce patterns across departments, engagement, performance and historical attrition.")
+    summary=(data.groupby("Department").agg(
+        Employees=("EmployeeID","count"),
+        Average_Engagement=("EngagementScore","mean"),
+        Average_Performance=("PerformanceRating","mean"),
+        Attrition_Count=("Attrition",lambda x:(x=="Yes").sum())
+    ).reset_index())
+    summary["Attrition_Rate"]=(summary["Attrition_Count"]/summary["Employees"]*100).round(1)
+    summary["Average_Engagement"]=summary["Average_Engagement"].round(1)
+    summary["Average_Performance"]=summary["Average_Performance"].round(2)
     st.subheader("🏢 Employees by Department")
-
-    department_counts = (
-        data["Department"]
-        .value_counts()
-    )
-
-    st.bar_chart(
-        department_counts
-    )
-
-    st.divider()
-
-    # Engagement
-    st.subheader("📈 Engagement Distribution")
-
-    st.bar_chart(
-        data[
-            ["EngagementScore"]
-        ]
-    )
-
-    st.divider()
-
-    # Attrition
-    st.subheader("📉 Historical Attrition")
-
-    attrition_counts = (
-        data["Attrition"]
-        .value_counts()
-    )
-
-    st.bar_chart(
-        attrition_counts
-    )
-
-    st.divider()
-
-    # Workload
-    st.subheader("⚙️ Workload Distribution")
-
-    workload_counts = (
-        data["Workload"]
-        .value_counts()
-    )
-
-    st.bar_chart(
-        workload_counts
-    )
-
-    st.divider()
-
-    st.subheader("📋 Workforce Dataset")
-
-    st.dataframe(
-        data,
-        use_container_width=True
-    )
-
-
-# --------------------------------------------------
-# FOOTER
-# --------------------------------------------------
+    st.bar_chart(summary.set_index("Department")["Employees"])
+    st.subheader("📈 Average Engagement by Department")
+    st.bar_chart(summary.set_index("Department")["Average_Engagement"])
+    st.subheader("⚠️ Historical Attrition Rate by Department")
+    st.bar_chart(summary.set_index("Department")["Attrition_Rate"])
+    st.subheader("🎯 Engagement vs Performance")
+    st.scatter_chart(data[["EngagementScore","PerformanceRating"]],x="EngagementScore",y="PerformanceRating")
+    st.subheader("📚 Training Hours vs Engagement")
+    st.scatter_chart(data[["TrainingHours","EngagementScore"]],x="TrainingHours",y="EngagementScore")
+    st.subheader("📋 Department Intelligence")
+    st.dataframe(summary,use_container_width=True)
 
 st.divider()
-
-st.caption(
-    "PeoplePulse AI • AI Avengers • AI-powered workforce decision support"
-)
+st.caption("PeoplePulse AI • AI Avengers • AI-powered workforce decision intelligence")
+st.caption("Prototype uses synthetic employee data for demonstration purposes.")
