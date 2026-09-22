@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import ollama
+try:
+    import ollama
+except ImportError:
+    ollama = None
 
 st.set_page_config(page_title="PeoplePulse AI", page_icon="👥", layout="wide", initial_sidebar_state="expanded")
 
@@ -53,6 +56,8 @@ def action_plan(emp):
     return a
 
 def local_ai(prompt):
+    if ollama is None:
+        return "Local Generative AI is available when running PeoplePulse AI locally with Ollama. The deployed dashboard and ML features are fully available on Streamlit Cloud."
     try:
         # Fast local inference for hackathon demo
         r = ollama.chat(
