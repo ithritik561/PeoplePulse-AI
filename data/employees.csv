@@ -1,0 +1,26 @@
+EmployeeID,Age,Department,JobRole,YearsAtCompany,MonthlyIncome,JobSatisfaction,WorkLifeBalance,PerformanceRating,OverTime,TrainingHours,ProjectsCount,Workload,EngagementScore,PromotionYears,AbsenceDays,Attrition
+E1001,24,Engineering,Software Engineer,1,42000,3,2,3,Yes,12,4,High,52,1,8,Yes
+E1002,29,Engineering,Data Analyst,3,58000,4,4,4,No,28,5,Medium,82,2,3,No
+E1003,35,HR,HR Specialist,7,62000,2,2,3,Yes,8,3,High,45,6,12,Yes
+E1004,41,Finance,Financial Analyst,10,78000,4,3,4,No,24,6,Medium,86,3,2,No
+E1005,27,Sales,Sales Executive,2,45000,2,2,3,Yes,10,7,High,48,2,10,Yes
+E1006,32,Engineering,ML Engineer,5,92000,4,4,4,No,40,6,Medium,91,2,2,No
+E1007,26,Marketing,Marketing Executive,2,47000,3,3,3,No,18,4,Medium,70,2,4,No
+E1008,38,Engineering,Senior Developer,9,105000,2,2,3,Yes,6,8,High,43,7,14,Yes
+E1009,31,HR,Recruiter,4,55000,4,3,4,No,30,5,Medium,79,2,3,No
+E1010,45,Finance,Finance Manager,12,115000,4,4,4,No,32,7,Low,94,3,1,No
+E1011,28,Engineering,Software Engineer,3,51000,2,2,3,Yes,9,6,High,46,3,11,Yes
+E1012,36,Sales,Sales Manager,8,85000,3,3,4,Yes,20,8,High,63,5,7,No
+E1013,30,Engineering,DevOps Engineer,4,76000,4,4,4,No,35,6,Medium,88,2,2,No
+E1014,25,HR,HR Assistant,1,36000,3,3,3,No,16,3,Medium,68,1,5,No
+E1015,40,Engineering,Tech Lead,11,125000,2,2,3,Yes,5,9,High,41,8,15,Yes
+E1016,33,Marketing,Digital Marketer,5,61000,4,3,4,No,26,6,Medium,84,3,2,No
+E1017,29,Sales,Sales Executive,3,49000,2,2,3,Yes,11,7,High,50,3,9,Yes
+E1018,37,Engineering,Data Scientist,6,98000,4,4,4,No,42,7,Medium,92,2,1,No
+E1019,43,HR,HR Manager,14,110000,4,3,4,No,30,5,Low,89,3,2,No
+E1020,26,Engineering,Junior Developer,1,39000,3,2,3,Yes,14,4,High,58,1,7,Yes
+E1021,34,Finance,Accountant,6,68000,3,3,3,No,22,5,Medium,74,4,4,No
+E1022,39,Sales,Sales Executive,9,59000,2,2,3,Yes,7,8,High,44,8,13,Yes
+E1023,31,Engineering,Cloud Engineer,5,88000,4,4,4,No,38,6,Medium,90,2,2,No
+E1024,28,Engineering,Software Engineer,3,53000,2,2,3,Yes,6,7,High,39,3,12,Yes
+E1025,42,Marketing,Marketing Manager,10,97000,4,4,4,No,34,6,Low,93,3,1,No
